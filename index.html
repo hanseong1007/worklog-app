@@ -2596,7 +2596,9 @@ function renderPreset(){
   $('#pickOk').textContent = (mode === 'manage'
     ? '일지에 추가'
     : (pickSelCount()
-        ? (how === 'join' ? '업무내용 ' + pickSelCount() + '개 한 줄로 추가' : '업무내용 ' + pickSelCount() + '줄 일지에 추가')
+        ? (how === 'join' && pickSelCount() > 1
+            ? '업무내용 ' + pickSelCount() + '개 한 줄로 추가'
+            : '업무내용 ' + pickSelCount() + '줄 일지에 추가')
         : '업무명만 일지에 추가'));
 }
 function pickAddItem(){
@@ -2699,7 +2701,7 @@ function addPresetToLog(){
   var msg = '\'' + nm + '\' ';
   if(onlyName){
     msg += added ? '업무를 일지에 1줄 넣었어요' : '업무가 이미 일지에 있어요';
-  }else if(added && join) msg += '업무내용 ' + picked.length + '개를 한 줄로 넣었어요' + (dup ? ' (이미 있던 ' + dup + '개는 건너뜀)' : '');
+  }else if(added && join && picked.length > 1) msg += '업무내용 ' + picked.length + '개를 한 줄로 넣었어요' + (dup ? ' (이미 있던 ' + dup + '개는 건너뜀)' : '');
   else if(added && dup) msg += '업무내용 ' + added + '줄을 넣었어요 (이미 있던 ' + dup + '개는 건너뜀)';
   else if(added) msg += '업무내용 ' + added + '줄을 일지에 넣었어요';
   else msg += '업무내용이 이미 일지에 있어요';
