@@ -1673,7 +1673,7 @@ function syncFetch(payload){
 
 /* 이 기기 계정 → 시트에 올릴 모양 (공용 salt·앱별 해시·결재 권한) */
 /* 포털에서 정한 메뉴(발주 order · 업무일지 worklog · 근태 attendance) — 이 앱은 값을 그대로 보존만 한다 */
-var SYNC_MENU_KEYS = ['order', 'worklog', 'attendance', 'parcel'];
+var SYNC_MENU_KEYS = ['order', 'worklog', 'attendance', 'parcel', 'coupang'];
 function syncNormMenus(list){
   if(!Array.isArray(list)) return null;
   var pick = [], i, k;
