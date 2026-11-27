@@ -1311,6 +1311,8 @@ function decText(ct){
 function normId(id){ return String(id || '').trim().toLowerCase(); }
 /* 관리자 계정 아이디 — 2026-11-27 phs7604 로 바꿨고, 옛 admin 도 같은 관리자로 본다 */
 function isAdminId(id){ var n = normId(id); return n === 'admin' || n === 'phs7604'; }
+/* 지금의 관리자 계정 아이디 — 이 계정만 기기 계정 목록에서 지우지 않는다 (옛 admin 은 지울 수 있다) */
+function isRootId(id){ return normId(id) === 'phs7604'; }
 function noAdminSeed(){ return lsGet(NOSEED, false) === true; }
 function usersDoc(){
   var d = lsGet(UKEY, null);
@@ -1884,10 +1886,10 @@ function syncApplyDoc(doc){
     /* admin 이 deletedIds 에 넣어 실제로 지운 계정만 지운다 (admin 은 남긴다).
        시트에 없다는 이유로 이 기기의 계정을 지우지 않는다 — 다른 기기 계정 보호. */
     var delIds = {};
-    (Array.isArray(doc.deletedIds) ? doc.deletedIds : []).forEach(function(x){ var n = normId(x); if(n && !isAdminId(n)) delIds[n] = 1; });
+    (Array.isArray(doc.deletedIds) ? doc.deletedIds : []).forEach(function(x){ var n = normId(x); if(n && !isRootId(n)) delIds[n] = 1; });
     var d = usersDoc(), out = [], gone = 0;
     d.users.forEach(function(u){
-      if(isAdminId(u.id)){ out.push(u); return; }
+      if(isRootId(u.id)){ out.push(u); return; }
       if(delIds[u.id]){ gone++; return; }
       out.push(u);
     });
