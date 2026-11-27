@@ -580,6 +580,7 @@ body.chiefdesk .top-actions .tbtn{display:none !important}
 </style>
 </head>
 <body class="locked">
+<script src="/sec.js"></script>
 
 <!-- ============ 로그인 게이트 ============ -->
 <div class="authgate" id="authGate" role="main" aria-label="로그인">
@@ -1443,6 +1444,7 @@ function tryLogin(id, pw, keep){
   return { ok:true, user:u, locked:!k };
 }
 function logout(){
+  try{ if(kdsec()) kdsec().logout({ silent:true }); }catch(e){}
   clearSession();
   clearPortalSSO();
   CUR = null;
@@ -1634,6 +1636,20 @@ function changeOwnPassword(curPw, newPw){
    저장 형식: { v:1, updatedAt:'yyyy-MM-dd HH:mm:ss', kcat:'…', users:[…] }
    ============================================================ */
 var SYNC_URL = 'https://script.google.com/macros/s/AKfycbx8vtZ9wxfqwEUhuIC5hhV5dncN7IbVmrbjbPS93hfibfXAxMpwx-YtCGiqHeZXfEY81Q/exec';
+/* 서버 세션 토큰을 요청에 붙인다 (2026-11-27 보안 강화) */
+function withSecToken(payload){
+  var out = {}, k;
+  for(k in payload){ out[k] = payload[k]; }
+  try{
+    if(window.KDWSEC){
+      var t = KDWSEC.token();
+      if(t) out.token = t;
+      out.ua = (navigator.userAgent || '').slice(0, 90);
+    }
+  }catch(e){}
+  return out;
+}
+function kdsec(){ return window.KDWSEC || null; }
 var SYNC_APP = 'kdw';
 var SYNC_PFX = { kdw:'wl1|', kd:'kd1|', att:'att1|', portal:'p1|' };
 var SYNC_AT_KEY = 'kdw.sheet.syncat.v1';       /* 마지막으로 반영한 시트 updatedAt */
@@ -1656,10 +1672,11 @@ function syncStateNote(){
   else syncNote('');
 }
 function syncFetch(payload){
+  var body = withSecToken(payload);
   return fetch(SYNC_URL, {
     method:'POST', cache:'no-store', redirect:'follow',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   }).then(function(r){
     if(!r.ok) throw new Error('HTTP ' + r.status);
     return r.text();
@@ -3065,10 +3082,10 @@ function renderSheetList(){
 function apprFetch(payload){
   var url = storeAppr().url;
   if(!url) return Promise.reject(new Error('url 없음'));
-  return fetch(url, {
+  var body = withSecToken(payload);  return fetch(url, {
     method:'POST', redirect:'follow',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   }).then(function(r){
     return r.text().then(function(txt){
       var j = null;
@@ -5336,6 +5353,9 @@ function showGate(msg){
 }
 function startApp(u){
   CUR = u;
+  /* 처음 비밀번호면 다른 화면을 쓰기 전에 바꾸게 한다 (2026-11-27) */
+  var SEC = kdsec();
+  if(SEC && SEC.needChange()){ SEC.forceChange({ onDone:function(){ location.reload(); } }); }
   if(!SEED.ok) unlockSeedForUser(u, '');      /* 이 기기에 감춰 둔 열쇠로 예시 일지를 연다 */
   setScope(u.id);
   state.store = loadStore();
@@ -5384,7 +5404,20 @@ function bindAuth(){
       if(r.locked) showToast('저장 열쇠를 확인하지 못했어요 · 관리자에게 새 초대 링크를 받아 주세요');
       else if(r.user.mustChange) showToast('처음 비밀번호입니다 · 내 계정에서 바꿔 주세요');
     };
-    run(false);
+    var S = kdsec();
+    if(!S){ run(false); return; }
+    /* 2026-11-27 — 로그인은 서버가 확인하고 12시간 토큰을 받는다 */
+    msg.className = 'authmsg ok'; msg.textContent = '보안 서버에서 확인 중…';
+    S.login(id, pw, { app:'worklog' }).then(function(j){
+      if(!j || j.ok !== true){
+        msg.className = 'authmsg'; msg.textContent = S.loginMessage(j);
+        $('#loginPw').value = ''; $('#loginPw').focus(); return;
+      }
+      msg.className = 'authmsg ok'; msg.textContent = '';
+      run(false);
+    }).catch(function(){
+      msg.className = 'authmsg'; msg.textContent = '보안 서버에 연결하지 못했습니다 · 잠시 뒤 다시 시도해 주세요';
+    });
   });
   $('#btnPwHelp').addEventListener('click', function(){
     var m = $('#loginMsg');
@@ -5461,6 +5494,10 @@ function init(){
     if(inv.added.length === 1) $('#loginId').value = inv.added[0];
   }
   var u = readSession() || readPortalSSO();
+  /* 보안(2026-11-27): 서버 토큰이 없거나 이 화면 권한이 없으면 포털 로그인으로 */
+  var SEC = kdsec();
+  if(SEC && !SEC.guard('worklog')) return;
+  if(u && SEC && !SEC.session()){ clearSession(); u = null; }
   if(u) startApp(u);
   else showGate(note);
   /* 공용 계정: 로그인 화면이 열리면 조용히 한 번 시트에서 계정을 받아 둔다 */
