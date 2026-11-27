@@ -1267,7 +1267,7 @@ function unlockSeed(kseed){
   SEED.demo = spec.demo; SEED.key = kseed; SEED.ok = true;
   return true;
 }
-function seedWrapKeys(uid){ var p = 'kdw.u.' + uid + '.'; return { mat:p + 'seed.v1', pw:p + 'seed.pw.v1' }; }
+function seedWrapKeys(uid){ var p = 'kdw.u.' + (isAdminId(uid) ? 'admin' : uid) + '.'; return { mat:p + 'seed.v1', pw:p + 'seed.pw.v1' }; }
 function saveSeedWrap(u, kseed){
   if(!u || !kseed) return;
   lsSet(seedWrapKeys(u.id).mat, { v:1, salt:u.salt, ct:wrapKeyHex(kseed, matKeyHex(u.salt, u.hash)) });
@@ -1285,13 +1285,13 @@ function unlockSeedForUser(u, pw){
   if(W && W.salt && W.ct) k = unwrapKeyHex(W.ct, matKeyHex(W.salt, u.hash));
   /* 구글 시트 계정으로 맞추기 전 비밀번호로 감싸 둔 열쇠도 한 번 풀어 본다 */
   if(!k && W && W.salt && W.ct && u.prevHash) k = unwrapKeyHex(W.ct, matKeyHex(W.salt, u.prevHash));
-  if(!k && u.id === 'admin' && pw) k = unwrapKeyHex(SEED_WRAP.ct, pwKeyHex(SEED_WRAP.salt, pw));
-  if(!k && u.id === 'admin' && pw){
+  if(!k && isAdminId(u.id) && pw) k = unwrapKeyHex(SEED_WRAP.ct, pwKeyHex(SEED_WRAP.salt, pw));
+  if(!k && isAdminId(u.id) && pw){
     W = lsGet(seedWrapKeys(u.id).pw, null);
     if(W && W.salt && W.ct) k = unwrapKeyHex(W.ct, pwKeyHex(W.salt, pw));
   }
   /* 암호화 전부터 쓰던 기기 복구: 관리자로 로그인은 됐는데 열쇠가 없으면 처음 비밀번호로 감싼 열쇠를 한 번 쓴다 */
-  if(!k && u.id === 'admin' && pw) k = unwrapKeyHex(SEED_WRAP.ct, pwKeyHex(SEED_WRAP.salt, DEFAULT_ADMIN_PW));
+  if(!k && isAdminId(u.id) && pw) k = unwrapKeyHex(SEED_WRAP.ct, pwKeyHex(SEED_WRAP.salt, DEFAULT_ADMIN_PW));
   if(!k || !unlockSeed(k)) return '';
   saveSeedWrap(u, k);
   if(pw) saveSeedPwWrap(u, k, pw);
@@ -1309,6 +1309,8 @@ function decText(ct){
 
 /* ===== 사용자 문서 ===== */
 function normId(id){ return String(id || '').trim().toLowerCase(); }
+/* 관리자 계정 아이디 — 2026-11-27 phs7604 로 바꿨고, 옛 admin 도 같은 관리자로 본다 */
+function isAdminId(id){ var n = normId(id); return n === 'admin' || n === 'phs7604'; }
 function noAdminSeed(){ return lsGet(NOSEED, false) === true; }
 function usersDoc(){
   var d = lsGet(UKEY, null);
@@ -1318,7 +1320,7 @@ function usersDoc(){
   for(var i=0;i<d.users.length;i++){
     d.users[i].id = normId(d.users[i].id);
     if(!d.users[i].name) d.users[i].name = d.users[i].id;
-    if(d.users[i].id === 'admin'){ d.users[i].role = 'admin'; hasAdmin = true; }
+    if(isAdminId(d.users[i].id)){ d.users[i].role = 'admin'; hasAdmin = true; }
     else d.users[i].role = 'user';
     /* 결재 권한 — 없으면 관리자는 'all', 직원은 'staff' (예전 계정·포털 SSO 하위 호환) */
     d.users[i].apprRole = apprRoleOf(d.users[i]);
@@ -1368,7 +1370,7 @@ function findUser(id){
   for(var i=0;i<d.users.length;i++){ if(d.users[i].id === nid) return d.users[i]; }
   return null;
 }
-function isAdmin(){ return !!(CUR && CUR.role === 'admin' && CUR.id === 'admin'); }
+function isAdmin(){ return !!(CUR && CUR.role === 'admin' && isAdminId(CUR.id)); }
 function defName(){ return (CUR && CUR.name) ? CUR.name : DEFAULT_INFO.name; }
 
 /* ===== 세션 ===== */
@@ -1381,7 +1383,7 @@ function readSession(){
 }
 function writeSession(u, keep){
   var s = { userId:u.id, ts:Date.now(), name:(u.name || u.id),
-            role:(u.id === 'admin' ? 'admin' : 'user'), apprRole:apprRoleOf(u) };
+            role:(isAdminId(u.id) ? 'admin' : 'user'), apprRole:apprRoleOf(u) };
   try{ window.sessionStorage.removeItem(TKEY); }catch(e){}
   lsRemove(SKEY);
   if(keep){ lsSet(SKEY, s); }
@@ -1467,7 +1469,7 @@ function inviteUrl(ids){
   var d = usersDoc(), list = [];
   var seedKey = SEED.ok ? SEED.key : '';
   d.users.forEach(function(u){
-    if(u.id === 'admin') return;                      /* 관리자 계정은 링크에 담지 않는다 */
+    if(isAdminId(u.id)) return;                       /* 관리자 계정은 링크에 담지 않는다 */
     if(ids && ids.indexOf(u.id) === -1) return;
     /* 저장 열쇠도 그 직원의 비밀번호(salt+hash)로 감싸 함께 보낸다 */
     var seed = seedKey ? { s:u.salt, c:wrapKeyHex(seedKey, matKeyHex(u.salt, u.hash)) } : null;
@@ -1499,7 +1501,7 @@ function importInvite(token){
   if(fresh && incoming.length) lsSet(NOSEED, true);
   var d = usersDoc(), added = [];
   incoming.forEach(function(u){
-    if(u.id === 'admin') return;
+    if(isAdminId(u.id)) return;
     var had = findUser(u.id);
     if(had){
       /* 이미 있는 계정의 비밀번호는 덮어쓰지 않지만, 관리자가 새로 만든 초대 링크의 결재 권한은 반영한다 */
@@ -1513,7 +1515,7 @@ function importInvite(token){
   });
   saveUsers(d);
   incoming.forEach(function(u){
-    if(!u.seed || u.id === 'admin') return;
+    if(!u.seed || isAdminId(u.id)) return;
     var acc = findUser(u.id);
     if(!acc || acc.salt !== u.seed.s) return;      /* 이 기기 계정의 비밀번호와 짝이 맞을 때만 */
     lsSet(seedWrapKeys(u.id).mat, { v:1, salt:u.seed.s, ct:u.seed.c });
@@ -1554,7 +1556,7 @@ function addUser(id, name, pw, apprRole){
 function setUserApprRole(id, role){
   if(!isAdmin()) return { ok:false, msg:'관리자만 결재 권한을 바꿀 수 있습니다' };
   var nid = normId(id);
-  if(nid === 'admin') return { ok:false, msg:'관리자 계정은 전체 권한으로 고정됩니다' };
+  if(isAdminId(nid)) return { ok:false, msg:'관리자 계정은 전체 권한으로 고정됩니다' };
   if(role !== 'staff' && role !== 'chief' && role !== 'ceo' && role !== 'all') return { ok:false, msg:'결재 권한이 올바르지 않습니다' };
   var d = usersDoc(), hit = null;
   for(var i=0;i<d.users.length;i++){ if(d.users[i].id === nid){ hit = d.users[i]; break; } }
@@ -1568,7 +1570,7 @@ function setUserApprRole(id, role){
 function resetPassword(id, pw){
   if(!isAdmin()) return { ok:false, msg:'관리자만 비밀번호를 재설정할 수 있습니다' };
   var nid = normId(id);
-  if(nid === 'admin') return { ok:false, msg:'관리자 비밀번호는 내 계정에서 바꿔 주세요' };
+  if(isAdminId(nid)) return { ok:false, msg:'관리자 비밀번호는 내 계정에서 바꿔 주세요' };
   if(String(pw || '').length < 4) return { ok:false, msg:'새 비밀번호는 4자 이상으로 넣어 주세요' };
   var d = usersDoc(), hit = null;
   for(var i=0;i<d.users.length;i++){ if(d.users[i].id === nid){ hit = d.users[i]; break; } }
@@ -1583,7 +1585,7 @@ function resetPassword(id, pw){
 function deleteUser(id){
   if(!isAdmin()) return { ok:false, msg:'관리자만 사용자를 삭제할 수 있습니다' };
   var nid = normId(id);
-  if(nid === 'admin') return { ok:false, msg:'관리자는 삭제할 수 없습니다' };
+  if(isAdminId(nid)) return { ok:false, msg:'관리자는 삭제할 수 없습니다' };
   var d = usersDoc(), hit = null, rest = [];
   d.users.forEach(function(u){ if(u.id === nid) hit = u; else rest.push(u); });
   if(!hit) return { ok:false, msg:'없는 사용자입니다' };
@@ -1592,7 +1594,7 @@ function deleteUser(id){
   var del = {};
   deletedIdsOf(d).forEach(function(x){ var n2 = normId(x); if(n2) del[n2] = 1; });
   del[nid] = 1;
-  d.deletedIds = Object.keys(del).filter(function(x){ return x && x !== 'admin'; });
+  d.deletedIds = Object.keys(del).filter(function(x){ return x && !isAdminId(x); });
   saveUsers(d);
   pushUsersToSheet({ full:true });
   try{
@@ -1720,7 +1722,7 @@ function syncRecordOf(u){
     for(k in u.sheetHashes){ if(SYNC_PFX[k] && u.sheetHashes[k]){ hs[k] = String(u.sheetHashes[k]); any = true; } }
   }
   if(!hs[SYNC_APP] && salt && u.hash && (!u.sheetSalt || u.sheetSalt === u.salt)){ hs[SYNC_APP] = u.hash; any = true; }
-  var rec = { id:u.id, name:u.name || u.id, role:(u.id === 'admin' ? 'admin' : 'user'),
+  var rec = { id:u.id, name:u.name || u.id, role:(isAdminId(u.id) ? 'admin' : 'user'),
               apprRole: apprRoleOf(u), salt:salt, hash:(hs[SYNC_APP] || ''),
               active:(u.active !== false), mustChange:(u.mustChange === true),
               createdAt:(u.createdAt || 0), hashApp:SYNC_APP };
@@ -1828,7 +1830,8 @@ function pushUsersToSheet(opts){
 function syncCanSeed(){
   var d = usersDoc();
   if(d.users.length >= 2) return true;
-  var a = findUser('admin');
+  var a = null, dl = d.users;
+  for(var di=0; di<dl.length; di++){ if(isAdminId(dl[di].id)){ a = dl[di]; break; } }
   if(!a || !a.salt || !a.hash) return false;
   return hashPw(DEFAULT_ADMIN_PW, a.salt) !== a.hash;     /* admin 비밀번호가 바뀐 기기 */
 }
@@ -1842,9 +1845,9 @@ function syncApplyRec(rec, id){
   }
   var name = String(rec.name || id).slice(0, 20);
   /* '관리자' 는 앱이 쓰는 기본 자리표시 이름 — 시트가 그 이름으로 덮여 있어도 실제 이름을 지우지 않는다 */
-  if(id === 'admin' && name === '관리자' && u.name && u.name !== '관리자') name = u.name;
+  if(isAdminId(id) && name === '관리자' && u.name && u.name !== '관리자') name = u.name;
   if(u.name !== name){ u.name = name; changed = true; }
-  var ar = (id === 'admin') ? 'all' : ((rec.apprRole === 'chief' || rec.apprRole === 'ceo' || rec.apprRole === 'all') ? rec.apprRole : 'staff');
+  var ar = (isAdminId(id)) ? 'all' : ((rec.apprRole === 'chief' || rec.apprRole === 'ceo' || rec.apprRole === 'all') ? rec.apprRole : 'staff');
   if(u.apprRole !== ar){ u.apprRole = ar; changed = true; }
   if(rec.active === false){ u.active = false; } else if('active' in u){ delete u.active; }
   if(rec.mustChange !== undefined && (!!u.mustChange) !== (!!rec.mustChange)){ u.mustChange = !!rec.mustChange; changed = true; }
@@ -1881,10 +1884,10 @@ function syncApplyDoc(doc){
     /* admin 이 deletedIds 에 넣어 실제로 지운 계정만 지운다 (admin 은 남긴다).
        시트에 없다는 이유로 이 기기의 계정을 지우지 않는다 — 다른 기기 계정 보호. */
     var delIds = {};
-    (Array.isArray(doc.deletedIds) ? doc.deletedIds : []).forEach(function(x){ var n = normId(x); if(n && n !== 'admin') delIds[n] = 1; });
+    (Array.isArray(doc.deletedIds) ? doc.deletedIds : []).forEach(function(x){ var n = normId(x); if(n && !isAdminId(n)) delIds[n] = 1; });
     var d = usersDoc(), out = [], gone = 0;
     d.users.forEach(function(u){
-      if(u.id === 'admin'){ out.push(u); return; }
+      if(isAdminId(u.id)){ out.push(u); return; }
       if(delIds[u.id]){ gone++; return; }
       out.push(u);
     });
@@ -1925,7 +1928,7 @@ function syncAfterApply(res){
 /* 세션 기록(session · kd.portal.sso.v1)에 남은 이름·권한을 시트 값으로 맞춘다 */
 function syncSessionLabels(u){
   if(!u) return;
-  var nm = u.name || u.id, ro = (u.id === 'admin' ? 'admin' : 'user'), ar = apprRoleOf(u), s, k, ss;
+  var nm = u.name || u.id, ro = (isAdminId(u.id) ? 'admin' : 'user'), ar = apprRoleOf(u), s, k, ss;
   try{ s = JSON.parse(window.sessionStorage.getItem(TKEY) || 'null'); }catch(e){ s = null; }
   if(s && s.userId === u.id && (s.name !== nm || s.role !== ro || s.apprRole !== ar)){
     s.name = nm; s.role = ro; s.apprRole = ar;
@@ -1990,7 +1993,7 @@ function syncSessionAccount(){
   var now = Date.now();
   if(SHEET_SYNC.acctAt && now - SHEET_SYNC.acctAt < 60000) return Promise.resolve({ ok:false, skipped:true });
   SHEET_SYNC.acctAt = now;
-  return syncUsersFromSheet({ seed:(CUR.id === 'admin'), quiet:true }).then(function(r){
+  return syncUsersFromSheet({ seed:(isAdminId(CUR.id)), quiet:true }).then(function(r){
     syncAfterApply(r);
     return r;
   });
@@ -2205,10 +2208,12 @@ var state = { store:null, doc:null, saveTimer:null, paperTimer:null, modalResolv
               chips:[], chipEdit:false, pick:null, pendingCount:0, notifyRow:null };
 
 function setScope(uid){
-  STORE_KEY = 'kdw.u.' + uid + '.logs.v1';
-  CHIPS_KEY = 'kdw.u.' + uid + '.taskchips.v1';
-  CHIPS_AT_KEY = 'kdw.u.' + uid + '.taskchipsat.v1';
-  PICK_HOW_KEY = 'kdw.u.' + uid + '.pickhow.v1';
+  /* 관리자 계정은 아이디가 바뀌어도 이 기기의 같은 저장 자리를 쓴다 (kdw.u.admin…) */
+  var k = isAdminId(uid) ? 'admin' : uid;
+  STORE_KEY = 'kdw.u.' + k + '.logs.v1';
+  CHIPS_KEY = 'kdw.u.' + k + '.taskchips.v1';
+  CHIPS_AT_KEY = 'kdw.u.' + k + '.taskchipsat.v1';
+  PICK_HOW_KEY = 'kdw.u.' + k + '.pickhow.v1';
 }
 
 /* 저장된 값 읽기 — 새 형식({v:2,e:암호문})이면 열쇠로 풀고, 예전 평문이면 그대로 쓴다 */
@@ -2231,7 +2236,7 @@ function loadStore(){
     if(s && s.logs && typeof s.logs === 'object') return s;
   }
   /* 로그인 없이 쓰던 기기: 예전 저장분을 관리자 계정 자리로 옮긴다(처음 성공 저장 뒤에 예전 자리를 지운다) */
-  if(CUR && CUR.id === 'admin' && STORE_KEY !== LEGACY_KEY){
+  if(CUR && isAdminId(CUR.id) && STORE_KEY !== LEGACY_KEY){
     var old = lsRaw(LEGACY_KEY);
     if(old){
       var o = parseStored(old);
@@ -4307,7 +4312,7 @@ function isoOfDate(d){
 function isManagerUser(){
   if(!CUR) return false;
   var r = myApprRole();
-  return CUR.id === 'admin' || CUR.name === '박한성' || r === 'all' || r === 'chief' || r === 'ceo';
+  return isAdminId(CUR.id) || CUR.name === '박한성' || r === 'all' || r === 'chief' || r === 'ceo';
 }
 function myName(){ return String((CUR && (CUR.name || CUR.id)) || '').trim(); }
 function isMineAuthor(name){
@@ -5265,7 +5270,7 @@ function renderUsers(){
   $('#usersCount').textContent = '(' + d.users.length + '명)';
   d.users.forEach(function(u){
     var me = CUR && CUR.id === u.id;
-    var admin = u.id === 'admin';
+    var admin = isAdminId(u.id);
     var ar = apprRoleOf(u);
     html.push('<div class="urow' + (me ? ' me' : '') + '" data-uid="' + esc(u.id) + '">' +
       '<div class="ut"><b>' + esc(u.name || u.id) + '</b><span class="uid">' + esc(u.id) + '</span>' +
@@ -5399,7 +5404,7 @@ function bindAuth(){
       msg.className = 'authmsg ok'; msg.textContent = '';
       startApp(r.user);
       /* 이 기기에서 확인한 비밀번호로 네 앱 해시를 맞추고, 시트가 비었으면 관리자 계정부터 올린다 */
-      if(r.user.id === 'admin') syncSelfHeal(r.user, pw).then(function(){ return syncUsersFromSheet({ seed:true }); });
+      if(isAdminId(r.user.id)) syncSelfHeal(r.user, pw).then(function(){ return syncUsersFromSheet({ seed:true }); });
       else syncSelfHeal(r.user, pw);
       if(r.locked) showToast('저장 열쇠를 확인하지 못했어요 · 관리자에게 새 초대 링크를 받아 주세요');
       else if(r.user.mustChange) showToast('처음 비밀번호입니다 · 내 계정에서 바꿔 주세요');
